@@ -110,7 +110,7 @@ def record_node_stats(params: dict, node_id: Union[int, None]):
 def get_users_stats(api: XRayAPI):
     try:
         params = defaultdict(int)
-        for stat in filter(attrgetter('value'), api.get_users_stats(reset=True, timeout=300)):
+        for stat in filter(attrgetter('value'), api.get_users_stats(reset=True, timeout=30)):
             params[stat.name.split('.', 1)[0]] += stat.value
         params = list({"uid": uid, "value": value} for uid, value in params.items())
         return params
@@ -121,7 +121,7 @@ def get_users_stats(api: XRayAPI):
 def get_outbounds_stats(api: XRayAPI):
     try:
         params = [{"up": stat.value, "down": 0} if stat.link == "uplink" else {"up": 0, "down": stat.value}
-                  for stat in filter(attrgetter('value'), api.get_outbounds_stats(reset=True, timeout=100))]
+                  for stat in filter(attrgetter('value'), api.get_outbounds_stats(reset=True, timeout=10))]
         return params
     except xray_exc.XrayError:
         return []

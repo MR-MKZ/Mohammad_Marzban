@@ -136,8 +136,7 @@ def record_user_usages():
             api_instances[node_id] = node.api
             usage_coefficient[node_id] = node.usage_coefficient  # fetch the usage coefficient
 
-    max_workers = min(max(len(api_instances), 10), 100)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {node_id: executor.submit(get_users_stats, api) for node_id, api in api_instances.items()}
     api_params = {node_id: future.result() for node_id, future in futures.items()}
 
@@ -190,8 +189,7 @@ def record_node_usages():
         if node.connected and node.started:
             api_instances[node_id] = node.api
 
-    max_workers = min(max(len(api_instances), 10), 100)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {node_id: executor.submit(get_outbounds_stats, api) for node_id, api in api_instances.items()}
     api_params = {node_id: future.result() for node_id, future in futures.items()}
 

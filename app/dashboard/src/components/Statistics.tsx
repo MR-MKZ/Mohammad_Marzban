@@ -163,9 +163,7 @@ export const Statistics: FC<BoxProps> = (props) => {
         title={t("usersUsage")}
         content={
           systemData &&
-          formatBytes(
-            systemData.total_user_traffic
-          )
+          `${((systemData.total_user_traffic || 0) / Math.pow(1024, 3)).toFixed(0)} GB`
         }
         icon={<NetworkIcon />}
       />

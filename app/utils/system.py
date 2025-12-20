@@ -70,7 +70,7 @@ rt_bw = RealtimeBandwidth(
     incoming_bytes=0, outgoing_bytes=0, incoming_packets=0, outgoing_packets=0)
 
 
-# sample time is 2 seconds, values lower than this may not produce good results
+# sample time is 20 seconds, values lower than this may not produce good results
 @scheduler.scheduled_job("interval", seconds=20, coalesce=True, max_instances=1)
 def record_realtime_bandwidth() -> None:
     global rt_bw
@@ -110,14 +110,14 @@ def check_port(port: int) -> bool:
 
 def get_public_ip():
     try:
-        resp = requests.get('http://api4.ipify.org/', timeout=5).text.strip()
+        resp = requests.get('http://api4.ipify.org/', timeout=50).text.strip()
         if ipaddress.IPv4Address(resp).is_global:
             return resp
     except:
         pass
 
     try:
-        resp = requests.get('http://ipv4.icanhazip.com/', timeout=5).text.strip()
+        resp = requests.get('http://ipv4.icanhazip.com/', timeout=50).text.strip()
         if ipaddress.IPv4Address(resp).is_global:
             return resp
     except:
@@ -125,7 +125,7 @@ def get_public_ip():
 
     try:
         requests.packages.urllib3.util.connection.HAS_IPV6 = False
-        resp = requests.get('https://ifconfig.io/ip', timeout=5).text.strip()
+        resp = requests.get('https://ifconfig.io/ip', timeout=50).text.strip()
         if ipaddress.IPv4Address(resp).is_global:
             return resp
     except requests.exceptions.RequestException:
@@ -149,14 +149,14 @@ def get_public_ip():
 
 def get_public_ipv6():
     try:
-        resp = requests.get('http://api6.ipify.org/', timeout=5).text.strip()
+        resp = requests.get('http://api6.ipify.org/', timeout=50).text.strip()
         if ipaddress.IPv6Address(resp).is_global:
             return '[%s]' % resp
     except:
         pass
 
     try:
-        resp = requests.get('http://ipv6.icanhazip.com/', timeout=5).text.strip()
+        resp = requests.get('http://ipv6.icanhazip.com/', timeout=50).text.strip()
         if ipaddress.IPv6Address(resp).is_global:
             return '[%s]' % resp
     except:

@@ -103,9 +103,9 @@ async def node_logs(node_id: int, websocket: WebSocket, db: Session = Depends(ge
             interval = float(interval)
         except ValueError:
             return await websocket.close(reason="Invalid interval value", code=4400)
-        if interval > 10:
+        if interval > 100:
             return await websocket.close(
-                reason="Interval must be more than 0 and at most 10 seconds", code=4400
+                reason="Interval must be more than 0 and at most 100 seconds", code=4400
             )
 
     await websocket.accept()
@@ -128,7 +128,7 @@ async def node_logs(node_id: int, websocket: WebSocket, db: Session = Depends(ge
 
             if not logs:
                 try:
-                    await asyncio.wait_for(websocket.receive(), timeout=0.2)
+                    await asyncio.wait_for(websocket.receive(), timeout=2.0)
                     continue
                 except asyncio.TimeoutError:
                     continue

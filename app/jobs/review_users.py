@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder, get_users,
-                    start_user_expire, update_user_status, reset_user_by_next)
+                    get_users_for_review, start_user_expire, update_user_status,
+                    reset_user_by_next)
 from app.models.user import ReminderType, UserResponse, UserStatus
 from app.utils import report
 from app.utils.helpers import (calculate_expiration_days,
@@ -55,7 +56,8 @@ def review():
     now = datetime.utcnow()
     now_ts = now.timestamp()
     with GetDB() as db:
-        for user in get_users(db, status=UserStatus.active):
+        # Get only active users who need to be reviewed (limited or expired)
+        for user in get_users_for_review(db, now_ts):
 
             limited = user.data_limit and user.used_traffic >= user.data_limit
             expired = user.expire and user.expire <= now_ts
@@ -76,8 +78,6 @@ def review():
             elif expired:
                 status = UserStatus.expired
             else:
-                if WEBHOOK_ADDRESS:
-                    add_notification_reminders(db, user, now)
                 continue
 
             xray.operations.remove_user(user)
@@ -87,6 +87,11 @@ def review():
                                  user=UserResponse.model_validate(user), user_admin=user.admin)
 
             logger.info(f"User \"{user.username}\" status changed to {status}")
+
+        # For notification reminders, we still need all active users
+        if WEBHOOK_ADDRESS:
+            for user in get_users(db, status=UserStatus.active):
+                add_notification_reminders(db, user, now)
 
         for user in get_users(db, status=UserStatus.on_hold):
 

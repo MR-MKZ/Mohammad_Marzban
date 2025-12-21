@@ -120,6 +120,14 @@ class User(BaseModel):
             return None
         return v
 
+    @field_validator("on_hold_expire_duration", mode="after")
+    @classmethod
+    def limit_on_hold_expire_duration(cls, v):
+        MAX_VAL = 2147483647
+        if v is not None and v > MAX_VAL:
+            return MAX_VAL
+        return v
+
 
 class UserCreate(User):
     username: str

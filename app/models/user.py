@@ -57,6 +57,8 @@ class NextPlanModel(BaseModel):
 
 
 class User(BaseModel):
+    model_config = ConfigDict(validate_default=True)
+
     proxies: Dict[ProxyTypes, ProxySettings] = {}
     expire: Optional[int] = Field(None, nullable=True)
     data_limit: Optional[int] = Field(

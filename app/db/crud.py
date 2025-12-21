@@ -294,6 +294,39 @@ def get_users(db: Session,
     return query.all()
 
 
+def get_users_for_review(db: Session, now_ts: float) -> List[User]:
+    """
+    Retrieves active users who need to be reviewed for status change.
+    
+    This function returns active users who are either:
+    - Limited: used_traffic >= data_limit (when data_limit is set)
+    - Expired: expire <= now_ts (when expire is set)
+    
+    Args:
+        db (Session): Database session.
+        now_ts (float): Current timestamp to check expiration against.
+
+    Returns:
+        List[User]: List of active users who need status review.
+    """
+    query = get_user_queryset(db).filter(
+        User.status == UserStatus.active,
+        or_(
+            # Limited: has data_limit and used_traffic >= data_limit
+            and_(
+                User.data_limit.isnot(None),
+                User.used_traffic >= User.data_limit
+            ),
+            # Expired: has expire and expire <= now_ts
+            and_(
+                User.expire.isnot(None),
+                User.expire <= now_ts
+            )
+        )
+    )
+    return query.all()
+
+
 def get_user_usages(db: Session, dbuser: User, start: datetime, end: datetime) -> List[UserUsageResponse]:
     """
     Retrieves user usages within a specified date range.

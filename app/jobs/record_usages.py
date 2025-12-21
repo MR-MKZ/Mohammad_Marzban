@@ -16,6 +16,7 @@ from config import (
     DISABLE_RECORDING_NODE_USAGE,
     JOB_RECORD_NODE_USAGES_INTERVAL,
     JOB_RECORD_USER_USAGES_INTERVAL,
+    JOB_RECORD_USAGES_MAX_WORKERS,
 )
 from xray_api import XRay as XRayAPI
 from xray_api import exc as xray_exc
@@ -136,7 +137,7 @@ def record_user_usages():
             api_instances[node_id] = node.api
             usage_coefficient[node_id] = node.usage_coefficient  # fetch the usage coefficient
 
-    max_workers = min(max(len(api_instances), 10), 100)
+    max_workers = JOB_RECORD_USAGES_MAX_WORKERS
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {node_id: executor.submit(get_users_stats, api) for node_id, api in api_instances.items()}
     api_params = {node_id: future.result() for node_id, future in futures.items()}
@@ -190,7 +191,7 @@ def record_node_usages():
         if node.connected and node.started:
             api_instances[node_id] = node.api
 
-    max_workers = min(max(len(api_instances), 10), 100)
+    max_workers = JOB_RECORD_USAGES_MAX_WORKERS
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {node_id: executor.submit(get_outbounds_stats, api) for node_id, api in api_instances.items()}
     api_params = {node_id: future.result() for node_id, future in futures.items()}

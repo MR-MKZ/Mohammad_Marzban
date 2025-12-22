@@ -753,7 +753,7 @@ def disable_all_active_users(db: Session, admin: Optional[Admin] = None) -> List
     Returns:
         List[User]: List of users that were disabled.
     """
-    query = get_user_queryset(db).filter(User.status == UserStatus.active)
+    query = get_user_queryset(db).filter(User.status.in_((UserStatus.active, UserStatus.on_hold)))
     if admin:
         query = query.filter(User.admin == admin)
 

@@ -126,8 +126,11 @@ class ReSTXRayNode:
 
     @property
     def started(self):
-        res = self.make_request("/", timeout=30)
-        return res.get('started', False)
+        try:
+            res = self.make_request("/", timeout=30)
+            return res.get('started', False)
+        except NodeAPIError:
+            return False
 
     @property
     def api(self):

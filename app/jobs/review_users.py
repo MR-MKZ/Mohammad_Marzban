@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder, get_users,
-                    get_users_for_review, start_user_expire, update_user_status,
+                    get_users_for_review, get_onhold_users_for_review,
+                    start_user_expire, update_user_status,
                     reset_user_by_next)
 from app.models.user import ReminderType, UserResponse, UserStatus
 from app.utils import report
@@ -93,23 +94,8 @@ def review():
             for user in get_users(db, status=UserStatus.active):
                 add_notification_reminders(db, user, now)
 
-        for user in get_users(db, status=UserStatus.on_hold):
-
-            if user.edit_at:
-                base_time = datetime.timestamp(user.edit_at)
-            else:
-                base_time = datetime.timestamp(user.created_at)
-
-            # Check if the user is online After or at 'base_time'
-            if user.online_at and base_time <= datetime.timestamp(user.online_at):
-                status = UserStatus.active
-
-            elif user.on_hold_timeout and (datetime.timestamp(user.on_hold_timeout) <= (now_ts)):
-                # If the user didn't connect within the timeout period, change status to "Active"
-                status = UserStatus.active
-
-            else:
-                continue
+        for user in get_onhold_users_for_review(db, now):
+            status = UserStatus.active
 
             update_user_status(db, user, status)
             start_user_expire(db, user)

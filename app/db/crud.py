@@ -742,47 +742,89 @@ def reset_all_users_data_usage(db: Session, admin: Optional[Admin] = None):
     db.commit()
 
 
-def disable_all_active_users(db: Session, admin: Optional[Admin] = None):
+def disable_all_active_users(db: Session, admin: Optional[Admin] = None) -> List[User]:
     """
     Disable all active users or users under a specific admin.
 
     Args:
         db (Session): Database session.
         admin (Optional[Admin]): Admin to filter users by, if any.
+
+    Returns:
+        List[User]: List of users that were disabled.
     """
-    query = db.query(User).filter(User.status.in_((UserStatus.active, UserStatus.on_hold)))
+    query = get_user_queryset(db).filter(User.status == UserStatus.active)
     if admin:
         query = query.filter(User.admin == admin)
 
-    query.update({User.status: UserStatus.disabled, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
+    # Fetch the affected users before updating
+    affected_users = query.all()
 
-    db.commit()
+    if affected_users:
+        user_ids = [user.id for user in affected_users]
+        db.query(User).filter(User.id.in_(user_ids)).update(
+            {User.status: UserStatus.disabled, User.last_status_change: datetime.utcnow()},
+            synchronize_session=False
+        )
+        db.commit()
+
+    return affected_users
 
 
-def activate_all_disabled_users(db: Session, admin: Optional[Admin] = None):
+def activate_all_disabled_users(db: Session, admin: Optional[Admin] = None) -> List[User]:
     """
     Activate all disabled users or users under a specific admin.
 
     Args:
         db (Session): Database session.
         admin (Optional[Admin]): Admin to filter users by, if any.
+
+    Returns:
+        List[User]: List of users that were activated (only those set to active, not on_hold).
     """
-    query_for_active_users = db.query(User).filter(User.status == UserStatus.disabled)
-    query_for_on_hold_users = db.query(User).filter(
+    # Query for users that should become on_hold
+    query_for_on_hold_users = get_user_queryset(db).filter(
         and_(
-            User.status == UserStatus.disabled, User.expire.is_(
-                None), User.on_hold_expire_duration.isnot(None), User.online_at.is_(None)
-        ))
+            User.status == UserStatus.disabled,
+            User.expire.is_(None),
+            User.on_hold_expire_duration.isnot(None),
+            User.online_at.is_(None)
+        )
+    )
+    
+    # Query for all disabled users (will become active)
+    query_for_active_users = get_user_queryset(db).filter(User.status == UserStatus.disabled)
+    
     if admin:
         query_for_active_users = query_for_active_users.filter(User.admin == admin)
         query_for_on_hold_users = query_for_on_hold_users.filter(User.admin == admin)
 
-    query_for_on_hold_users.update(
-        {User.status: UserStatus.on_hold, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
-    query_for_active_users.update(
-        {User.status: UserStatus.active, User.last_status_change: datetime.utcnow()}, synchronize_session=False)
+    # Get the IDs of users who should be on_hold (to exclude from active users list)
+    on_hold_user_ids = {user.id for user in query_for_on_hold_users.all()}
+    
+    # Fetch all disabled users and filter out those going to on_hold
+    all_disabled_users = query_for_active_users.all()
+    users_to_activate = [user for user in all_disabled_users if user.id not in on_hold_user_ids]
+
+    # Update on_hold users
+    if on_hold_user_ids:
+        db.query(User).filter(User.id.in_(on_hold_user_ids)).update(
+            {User.status: UserStatus.on_hold, User.last_status_change: datetime.utcnow()},
+            synchronize_session=False
+        )
+
+    # Update active users
+    if users_to_activate:
+        active_user_ids = [user.id for user in users_to_activate]
+        db.query(User).filter(User.id.in_(active_user_ids)).update(
+            {User.status: UserStatus.active, User.last_status_change: datetime.utcnow()},
+            synchronize_session=False
+        )
 
     db.commit()
+
+    # Return only users that became active (they need to be added to xray)
+    return users_to_activate
 
 
 def autodelete_expired_users(db: Session,

@@ -140,12 +140,9 @@ def disable_all_active_users(
     db: Session = Depends(get_db), admin: Admin = Depends(Admin.check_sudo_admin)
 ):
     """Disable all active users under a specific admin"""
-    crud.disable_all_active_users(db=db, admin=dbadmin)
-    startup_config = xray.config.include_db_users()
-    xray.core.restart(startup_config)
-    for node_id, node in list(xray.nodes.items()):
-        if node.connected:
-            xray.operations.restart_node(node_id, startup_config)
+    disabled_users = crud.disable_all_active_users(db=db, admin=dbadmin)
+    for user in disabled_users:
+        xray.operations.remove_user(user)
     return {"detail": "Users successfully disabled"}
 
 
@@ -155,12 +152,9 @@ def activate_all_disabled_users(
     db: Session = Depends(get_db), admin: Admin = Depends(Admin.check_sudo_admin)
 ):
     """Activate all disabled users under a specific admin"""
-    crud.activate_all_disabled_users(db=db, admin=dbadmin)
-    startup_config = xray.config.include_db_users()
-    xray.core.restart(startup_config)
-    for node_id, node in list(xray.nodes.items()):
-        if node.connected:
-            xray.operations.restart_node(node_id, startup_config)
+    activated_users = crud.activate_all_disabled_users(db=db, admin=dbadmin)
+    for user in activated_users:
+        xray.operations.add_user(user)
     return {"detail": "Users successfully activated"}
 
 

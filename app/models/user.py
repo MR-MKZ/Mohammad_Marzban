@@ -159,6 +159,13 @@ class UserCreate(User):
         }
     })
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_required_proxies(cls, data):
+        if not data.get("proxies"):
+            raise ValueError("Each user needs at least one proxy")
+        return data
+
     @property
     def excluded_inbounds(self):
         excluded = {}

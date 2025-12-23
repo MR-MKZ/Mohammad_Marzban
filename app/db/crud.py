@@ -659,7 +659,20 @@ def reset_user_by_next(db: Session, dbuser: User) -> User:
 
     dbuser.data_limit = dbuser.next_plan.data_limit + \
         (0 if dbuser.next_plan.add_remaining_traffic else dbuser.data_limit - dbuser.used_traffic)
-    dbuser.expire = dbuser.next_plan.expire
+    # Calculate expire: if value > current timestamp, it's a future timestamp
+    # Otherwise treat as duration and add to current time
+    # Cap at max 32-bit signed int (2147483647) to prevent database overflow
+    MAX_EXPIRE = 2147483647
+    if dbuser.next_plan.expire:
+        now_ts = int(datetime.utcnow().timestamp())
+        if dbuser.next_plan.expire > now_ts:
+            # It's a timestamp (future date)
+            dbuser.expire = min(dbuser.next_plan.expire, MAX_EXPIRE)
+        else:
+            # It's a duration, add to current time
+            dbuser.expire = min(now_ts + dbuser.next_plan.expire, MAX_EXPIRE)
+    else:
+        dbuser.expire = None
 
     dbuser.used_traffic = 0
     db.delete(dbuser.next_plan)

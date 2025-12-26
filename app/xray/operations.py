@@ -87,7 +87,10 @@ def add_user(dbuser: "DBUser"):
             _add_user_to_inbound(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
                 if node.connected and node.started:
-                    _add_user_to_inbound(node.api, inbound_tag, account)
+                    try:
+                        _add_user_to_inbound(node.api, inbound_tag, account)
+                    except ConnectionError:
+                        pass
 
 
 def remove_user(dbuser: "DBUser"):
@@ -97,7 +100,10 @@ def remove_user(dbuser: "DBUser"):
         _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
             if node.connected and node.started:
-                _remove_user_from_inbound(node.api, inbound_tag, email)
+                try:
+                    _remove_user_from_inbound(node.api, inbound_tag, email)
+                except ConnectionError:
+                    pass
 
 
 def update_user(dbuser: "DBUser"):
@@ -133,7 +139,10 @@ def update_user(dbuser: "DBUser"):
             _alter_inbound_user(xray.api, inbound_tag, account)  # main core
             for node in list(xray.nodes.values()):
                 if node.connected and node.started:
-                    _alter_inbound_user(node.api, inbound_tag, account)
+                    try:
+                        _alter_inbound_user(node.api, inbound_tag, account)
+                    except ConnectionError:
+                        pass
 
     for inbound_tag in xray.config.inbounds_by_tag:
         if inbound_tag in active_inbounds:
@@ -142,7 +151,10 @@ def update_user(dbuser: "DBUser"):
         _remove_user_from_inbound(xray.api, inbound_tag, email)
         for node in list(xray.nodes.values()):
             if node.connected and node.started:
-                _remove_user_from_inbound(node.api, inbound_tag, email)
+                try:
+                    _remove_user_from_inbound(node.api, inbound_tag, email)
+                except ConnectionError:
+                    pass
 
 
 def remove_node(node_id: int):

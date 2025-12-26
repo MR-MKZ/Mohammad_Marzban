@@ -22,7 +22,7 @@ def core_health_check():
         if node.connected:
             try:
                 assert node.started
-                node.api.get_sys_stats(timeout=20)
+                node.api.get_sys_stats(timeout=60)
             except (ConnectionError, xray_exc.XrayError, AssertionError):
                 if not config:
                     config = xray.config.include_db_users()

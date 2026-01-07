@@ -76,12 +76,17 @@ def record_user_stats(params: list, node_id: Union[int, None],
             safe_execute(db, stmt, [{'uid': uid} for uid in uids_to_insert])
 
         # record
+        # record
         stmt = update(NodeUserUsage) \
             .values(used_traffic=NodeUserUsage.used_traffic + bindparam('value') * consumption_factor) \
             .where(and_(NodeUserUsage.user_id == bindparam('uid'),
                         NodeUserUsage.node_id == node_id,
                         NodeUserUsage.created_at == created_at))
-        safe_execute(db, stmt, params)
+        
+        BATCH_SIZE = 200
+        for i in range(0, len(params), BATCH_SIZE):
+            batch = params[i:i + BATCH_SIZE]
+            safe_execute(db, stmt, batch)
 
 
 def record_node_stats(params: dict, node_id: Union[int, None]):
@@ -169,14 +174,23 @@ def record_user_usages():
                 online_at=datetime.utcnow()
         )
 
-        safe_execute(db, stmt, users_usage)
+        # Process updates in batches to prevent long-running transactions and lock contention
+        BATCH_SIZE = 200
+
+        for i in range(0, len(users_usage), BATCH_SIZE):
+            batch = users_usage[i:i + BATCH_SIZE]
+            safe_execute(db, stmt, batch)
 
         admin_data = [{"admin_id": admin_id, "value": value} for admin_id, value in admin_usage.items()]
         if admin_data:
             admin_update_stmt = update(Admin). \
                 where(Admin.id == bindparam('admin_id')). \
                 values(users_usage=Admin.users_usage + bindparam('value'))
-            safe_execute(db, admin_update_stmt, admin_data)
+            
+            # Admins are usually few, but batching is safe practice
+            for i in range(0, len(admin_data), BATCH_SIZE):
+                batch = admin_data[i:i + BATCH_SIZE]
+                safe_execute(db, admin_update_stmt, batch)
 
     if DISABLE_RECORDING_NODE_USAGE:
         return

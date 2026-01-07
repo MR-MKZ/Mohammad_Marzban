@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder, get_users,
@@ -59,51 +60,66 @@ def review():
     with GetDB() as db:
         # Get only active users who need to be reviewed (limited or expired)
         for user in get_users_for_review(db, now_ts):
+            try:
+                limited = user.data_limit and user.used_traffic >= user.data_limit
+                expired = user.expire and user.expire <= now_ts
 
-            limited = user.data_limit and user.used_traffic >= user.data_limit
-            expired = user.expire and user.expire <= now_ts
+                if (limited or expired) and user.next_plan is not None:
+                    if user.next_plan is not None:
 
-            if (limited or expired) and user.next_plan is not None:
-                if user.next_plan is not None:
+                        if user.next_plan.fire_on_either:
+                            reset_user_by_next_report(db, user)
+                            continue
 
-                    if user.next_plan.fire_on_either:
-                        reset_user_by_next_report(db, user)
-                        continue
+                        elif limited and expired:
+                            reset_user_by_next_report(db, user)
+                            continue
 
-                    elif limited and expired:
-                        reset_user_by_next_report(db, user)
-                        continue
+                if limited:
+                    status = UserStatus.limited
+                elif expired:
+                    status = UserStatus.expired
+                else:
+                    continue
 
-            if limited:
-                status = UserStatus.limited
-            elif expired:
-                status = UserStatus.expired
-            else:
+                xray.operations.remove_user(user)
+                update_user_status(db, user, status)
+
+                report.status_change(username=user.username, status=status,
+                                     user=UserResponse.model_validate(user), user_admin=user.admin)
+
+                logger.info(f"User \"{user.username}\" status changed to {status}")
+
+            except ObjectDeletedError:
+                # User was deleted by another operation (e.g., API request) during iteration
+                logger.debug(f"User was deleted during review, skipping")
                 continue
-
-            xray.operations.remove_user(user)
-            update_user_status(db, user, status)
-
-            report.status_change(username=user.username, status=status,
-                                 user=UserResponse.model_validate(user), user_admin=user.admin)
-
-            logger.info(f"User \"{user.username}\" status changed to {status}")
 
         # For notification reminders, we still need all active users
         if WEBHOOK_ADDRESS:
             for user in get_users(db, status=UserStatus.active):
-                add_notification_reminders(db, user, now)
+                try:
+                    add_notification_reminders(db, user, now)
+                except ObjectDeletedError:
+                    logger.debug(f"User was deleted during notification check, skipping")
+                    continue
 
         for user in get_onhold_users_for_review(db, now):
-            status = UserStatus.active
+            try:
+                status = UserStatus.active
 
-            update_user_status(db, user, status)
-            start_user_expire(db, user)
+                update_user_status(db, user, status)
+                start_user_expire(db, user)
 
-            report.status_change(username=user.username, status=status,
-                                 user=UserResponse.model_validate(user), user_admin=user.admin)
+                report.status_change(username=user.username, status=status,
+                                     user=UserResponse.model_validate(user), user_admin=user.admin)
 
-            logger.info(f"User \"{user.username}\" status changed to {status}")
+                logger.info(f"User \"{user.username}\" status changed to {status}")
+
+            except ObjectDeletedError:
+                # User was deleted by another operation during iteration
+                logger.debug(f"On-hold user was deleted during review, skipping")
+                continue
 
 
 scheduler.add_job(review, 'interval',

@@ -19,8 +19,7 @@ else:
         pool_size=SQLALCHEMY_POOL_SIZE,
         max_overflow=SQLIALCHEMY_MAX_OVERFLOW,
         pool_recycle=3600,
-        pool_timeout=10,
-        isolation_level="READ COMMITTED"
+        pool_timeout=10
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

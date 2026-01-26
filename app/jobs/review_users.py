@@ -7,8 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder, get_users,
-                    get_users_for_review, get_onhold_users_for_review,
-                    start_user_expire, update_user_status,
+                    get_users_for_review, update_user_status,
                     reset_user_by_next)
 from app.models.user import ReminderType, UserResponse, UserStatus
 from app.utils import report
@@ -102,17 +101,6 @@ def review():
         if WEBHOOK_ADDRESS:
             for user in get_users(db, status=UserStatus.active):
                 add_notification_reminders(db, user, now)
-
-        for user in get_onhold_users_for_review(db, now):
-            status = UserStatus.active
-
-            update_user_status(db, user, status)
-            start_user_expire(db, user)
-
-            report.status_change(username=user.username, status=status,
-                                 user=UserResponse.model_validate(user), user_admin=user.admin)
-
-            logger.info(f"User \"{user.username}\" status changed to {status}")
 
 
 scheduler.add_job(review, 'interval',

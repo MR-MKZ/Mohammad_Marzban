@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import ObjectDeletedError
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder, get_users,
@@ -60,34 +62,41 @@ def review():
         # Get only active users who need to be reviewed (limited or expired)
         for user in get_users_for_review(db, now_ts):
 
-            limited = user.data_limit and user.used_traffic >= user.data_limit
-            expired = user.expire and user.expire <= now_ts
+            try:
+                limited = user.data_limit and user.used_traffic >= user.data_limit
+                expired = user.expire and user.expire <= now_ts
 
-            if (limited or expired) and user.next_plan is not None:
-                if user.next_plan is not None:
+                if (limited or expired) and user.next_plan is not None:
+                    if user.next_plan is not None:
 
-                    if user.next_plan.fire_on_either:
-                        reset_user_by_next_report(db, user)
-                        continue
+                        if user.next_plan.fire_on_either:
+                            reset_user_by_next_report(db, user)
+                            continue
 
-                    elif limited and expired:
-                        reset_user_by_next_report(db, user)
-                        continue
+                        elif limited and expired:
+                            reset_user_by_next_report(db, user)
+                            continue
 
-            if limited:
-                status = UserStatus.limited
-            elif expired:
-                status = UserStatus.expired
-            else:
-                continue
+                if limited:
+                    status = UserStatus.limited
+                elif expired:
+                    status = UserStatus.expired
+                else:
+                    continue
 
-            xray.operations.remove_user(user)
-            update_user_status(db, user, status)
+                xray.operations.remove_user(user)
+                update_user_status(db, user, status)
 
-            report.status_change(username=user.username, status=status,
-                                 user=UserResponse.model_validate(user), user_admin=user.admin)
+                report.status_change(username=user.username, status=status,
+                                     user=UserResponse.model_validate(user), user_admin=user.admin)
 
-            logger.info(f"User \"{user.username}\" status changed to {status}")
+                logger.info(f"User \"{user.username}\" status changed to {status}")
+            except ObjectDeletedError:
+                logger.warning(f"User object deleted during review, skipping.")
+            except SQLAlchemyError:
+                logger.exception("Database error while reviewing user")
+            except Exception:
+                logger.exception("Unknown error while reviewing user")
 
         # For notification reminders, we still need all active users
         if WEBHOOK_ADDRESS:

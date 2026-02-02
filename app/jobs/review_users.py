@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import ObjectDeletedError
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,6 +21,7 @@ from config import (JOB_REVIEW_USERS_INTERVAL, NOTIFY_DAYS_LEFT,
 if TYPE_CHECKING:
     from app.db.models import User
 
+PROCESSING_USERS: Set[int] = set()
 
 def add_notification_reminders(db: Session, user: "User", now: datetime = datetime.utcnow()) -> None:
     if user.data_limit:
@@ -101,6 +101,9 @@ def process_single_user_review(user_id: int, now_ts: float) -> None:
             logger.exception(f"Database error review user {user_id}: {e}")
         except Exception as e:
             logger.exception(f"Unknown error review user {user_id}: {e}")
+        finally:
+            if user_id in PROCESSING_USERS:
+                PROCESSING_USERS.remove(user_id)
 
 def get_notification_candidates(db: Session, now_ts: float) -> List["User"]:
     # check users expiring in the next 30 days
@@ -117,7 +120,10 @@ def review():
     with GetDB() as db:
         # Get only active users who need to be reviewed (limited or expired)
         users = get_users_for_review(db, now_ts)
-        user_ids_to_review = [u.id for u in users]
+        for u in users:
+            if u.id not in PROCESSING_USERS:
+                user_ids_to_review.append(u.id)
+                PROCESSING_USERS.add(u.id)
     
     if user_ids_to_review:
         logger.debug(f"Reviewing {len(user_ids_to_review)} users for status change...")

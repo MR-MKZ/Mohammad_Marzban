@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Set
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 PROCESSING_USERS: Set[int] = set()
 
-def add_notification_reminders(db: Session, user: "User", now: datetime = datetime.utcnow()) -> None:
+def add_notification_reminders(db: Session, user: "User", now: datetime = datetime.now(timezone.utc)) -> None:
     if user.data_limit:
         usage_percent = calculate_usage_percent(user.used_traffic, user.data_limit)
 
@@ -95,7 +95,7 @@ def process_user_batch(user_ids: List[int], now_ts: float) -> None:
                     xray.operations.remove_user(user)
 
                     user.status = status
-                    user.last_status_change = datetime.utcnow()
+                    user.last_status_change = datetime.now(timezone.utc)
 
                     report.status_change(username=user.username, status=status,
                                          user=UserResponse.model_validate(user), user_admin=user.admin)
@@ -120,7 +120,7 @@ def get_notification_candidates(db: Session, now_ts: float) -> List["User"]:
     return get_users_for_notification(db, now_ts, max_days_lookahead)
 
 def review():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     now_ts = now.timestamp()
     
     user_ids_to_review = []

@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import ObjectDeletedError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -10,7 +10,7 @@ from app import logger, scheduler, xray
 from app.db import (GetDB, get_notification_reminder,
                     get_users_for_review, update_user_status, get_user_by_id,
                     reset_user_by_next, get_users_for_notification)
-from app.db.models import User
+from app.db.models import User, Proxy
 from app.models.user import ReminderType, UserResponse, UserStatus
 from app.utils import report
 from app.utils.helpers import (calculate_expiration_days,
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 PROCESSING_USERS: Set[int] = set()
 
-def add_notification_reminders(db: Session, user: "User", now: datetime = datetime.utcnow()) -> None:
+def add_notification_reminders(db: Session, user: "User", now: datetime = datetime.now(timezone.utc)) -> None:
     if user.data_limit:
         usage_percent = calculate_usage_percent(user.used_traffic, user.data_limit)
 
@@ -57,53 +57,61 @@ def reset_user_by_next_report(db: Session, user: "User"):
     report.user_data_reset_by_next(user=UserResponse.model_validate(user), user_admin=user.admin)
 
 
-def process_single_user_review(user_id: int, now_ts: float) -> None:
-    
+def process_user_batch(user_ids: List[int], now_ts: float) -> None:
     with GetDB() as db:
         try:
-            user = get_user_by_id(db, user_id)
-            
-            if not user:
-                return
-            
-            limited = user.data_limit and user.used_traffic >= user.data_limit
-            expired = user.expire and user.expire <= now_ts
-            
-            logger.debug(f"Reviewing user \"{user.username}\": limited={limited}, expired={expired}, now={now_ts}, expire={user.expire}, used_traffic={user.used_traffic}, data_limit={user.data_limit}")
+            users = db.query(User).filter(User.id.in_(user_ids)).options(
+                joinedload(User.admin),
+                joinedload(User.next_plan),
+                joinedload(User.proxies).joinedload(Proxy.excluded_inbounds)
+            ).all()
 
-            if (limited or expired) and user.next_plan is not None:
-                    if user.next_plan.fire_on_either:
-                        reset_user_by_next_report(db, user)
-                        return
+            for user in users:
+                try:
+                    if not user:
+                        continue
 
-                    elif limited and expired:
-                        reset_user_by_next_report(db, user)
-                        return
+                    limited = user.data_limit and user.used_traffic >= user.data_limit
+                    expired = user.expire and user.expire <= now_ts
 
-            if limited:
-                status = UserStatus.limited
-            elif expired:
-                status = UserStatus.expired
-            else:
-                return
-            
-            xray.operations.remove_user(user)
+                    logger.debug(f"Reviewing user \"{user.username}\": limited={limited}, expired={expired}, now={now_ts}, expire={user.expire}, used_traffic={user.used_traffic}, data_limit={user.data_limit}")
 
-            update_user_status(db, user, status)
+                    if (limited or expired) and user.next_plan is not None:
+                            if user.next_plan.fire_on_either:
+                                reset_user_by_next_report(db, user)
+                                continue
 
-            report.status_change(username=user.username, status=status,
-                                 user=UserResponse.model_validate(user), user_admin=user.admin)
+                            elif limited and expired:
+                                reset_user_by_next_report(db, user)
+                                continue
 
-            logger.info(f"User \"{user.username}\" status changed to {status}")
-        except ObjectDeletedError:
-            logger.warning(f"User {user_id} deleted during review, skipping.")
-        except SQLAlchemyError as e:
-            logger.exception(f"Database error review user {user_id}: {e}")
+                    if limited:
+                        status = UserStatus.limited
+                    elif expired:
+                        status = UserStatus.expired
+                    else:
+                        continue
+
+                    xray.operations.remove_user(user)
+
+                    user.status = status
+                    user.last_status_change = datetime.now(timezone.utc)
+
+                    report.status_change(username=user.username, status=status,
+                                         user=UserResponse.model_validate(user), user_admin=user.admin)
+
+                    logger.info(f"User \"{user.username}\" status changed to {status}")
+                except Exception as e:
+                    logger.exception(f"Error processing user {user.id} in batch: {e}")
+
+            db.commit()
         except Exception as e:
-            logger.exception(f"Unknown error review user {user_id}: {e}")
+            logger.exception(f"Error processing batch: {e}")
+            db.rollback()
         finally:
-            if user_id in PROCESSING_USERS:
-                PROCESSING_USERS.remove(user_id)
+            for uid in user_ids:
+                PROCESSING_USERS.discard(uid)
+
 
 def get_notification_candidates(db: Session, now_ts: float) -> List["User"]:
     # check users expiring in the next 30 days
@@ -112,7 +120,7 @@ def get_notification_candidates(db: Session, now_ts: float) -> List["User"]:
     return get_users_for_notification(db, now_ts, max_days_lookahead)
 
 def review():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     now_ts = now.timestamp()
     
     user_ids_to_review = []
@@ -128,9 +136,13 @@ def review():
     if user_ids_to_review:
         logger.debug(f"Reviewing {len(user_ids_to_review)} users for status change...")
         
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            for uid in user_ids_to_review:
-                executor.submit(process_single_user_review, uid, now_ts)
+        # Batch size of 50
+        batch_size = 50
+        batches = [user_ids_to_review[i:i + batch_size] for i in range(0, len(user_ids_to_review), batch_size)]
+
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            for batch in batches:
+                executor.submit(process_user_batch, batch, now_ts)
     
     if WEBHOOK_ADDRESS:
         with GetDB() as db:
